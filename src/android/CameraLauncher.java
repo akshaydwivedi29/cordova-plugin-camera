@@ -1265,7 +1265,15 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
                 byte[] code = jpeg_data.toByteArray();
                 byte[] output = Base64.encode(code, Base64.NO_WRAP);
                 String js_out = new String(output);
-                this.callbackContext.success(js_out);
+                JSONObject json = new JSONObject();
+                try{
+                    json.put("data", js_out);
+                    json.put("size",jpeg_data.size());
+
+                } catch (JSONException e){
+                    LOG.d(LOG_TAG, e.getLocalizedMessage());
+                }
+                this.callbackContext.success(json);
                 js_out = null;
                 output = null;
                 code = null;
