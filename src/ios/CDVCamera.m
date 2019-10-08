@@ -493,8 +493,12 @@ static NSString* toBase64(NSData* data) {
         {
             image = [self retrieveImage:info options:options];
             NSData* data = [self processImage:image info:info options:options];
+            NSString *dataSize = [NSString stringWithFormat: @"%ld", (long)data.length];
+            NSMutableDictionary *resDictionary = [[NSMutableDictionary alloc] init];
+            [resDictionary setObject:toBase64(data) forKey:@"data"];
+            [resDictionary setObject:dataSize forKey:@"size"];
             if (data)  {
-                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:toBase64(data)];
+                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary: resDictionary];
             }
         }
             break;
