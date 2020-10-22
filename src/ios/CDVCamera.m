@@ -168,7 +168,7 @@ static NSString* toBase64(NSData* data) {
                              [weakSelf sendNoPermissionResult:command.callbackId];
                          }]];
                          [alertController addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Settings", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                             [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString]];
+                             [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:nil];
                              [weakSelf sendNoPermissionResult:command.callbackId];
                          }]];
                          [weakSelf.viewController presentViewController:alertController animated:YES completion:nil];
@@ -383,6 +383,7 @@ static NSString* toBase64(NSData* data) {
                     }
                     [[self locationManager] startUpdatingLocation];
                 }
+                data = nil;
             }
         }
             break;
@@ -396,15 +397,10 @@ static NSString* toBase64(NSData* data) {
 - (NSString*)tempFilePath:(NSString*)extension
 {
     NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
-    NSFileManager* fileMgr = [[NSFileManager alloc] init]; // recommended by Apple (vs [NSFileManager defaultManager]) to be threadsafe
-    NSString* filePath;
-
     // unique file name
     NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
     NSNumber *timeStampObj = [NSNumber numberWithDouble: timeStamp];
-    do {
-        filePath = [NSString stringWithFormat:@"%@/%@%ld.%@", docsPath, CDV_PHOTO_PREFIX, [timeStampObj longValue], extension];
-    } while ([fileMgr fileExistsAtPath:filePath]);
+    NSString* filePath = [NSString stringWithFormat:@"%@/%@%ld.%@", docsPath, CDV_PHOTO_PREFIX, [timeStampObj longValue], extension];
 
     return filePath;
 }
@@ -470,7 +466,20 @@ static NSString* toBase64(NSData* data) {
             }
         }
             break;
-        case DestinationTypeFileUri:
+        case DestinationTypeDataUrl:
+        {
+            image = [self retrieveImage:info options:options];
+            NSData* data = [self processImage:image info:info options:options];
+            NSString *dataSize = [NSString stringWithFormat: @"%ld", (long)data.length];
+            NSMutableDictionary *resDictionary = [[NSMutableDictionary alloc] init];
+            [resDictionary setObject:toBase64(data) forKey:@"data"];
+            [resDictionary setObject:dataSize forKey:@"size"];
+            if (data)  {
+                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary: resDictionary];
+            }
+        }
+            break;
+        default: // DestinationTypeFileUri
         {
             image = [self retrieveImage:info options:options];
             NSData* data = [self processImage:image info:info options:options];
@@ -489,26 +498,10 @@ static NSString* toBase64(NSData* data) {
             }
         }
             break;
-        case DestinationTypeDataUrl:
-        {
-            image = [self retrieveImage:info options:options];
-            NSData* data = [self processImage:image info:info options:options];
-            NSString *dataSize = [NSString stringWithFormat: @"%ld", (long)data.length];
-            NSMutableDictionary *resDictionary = [[NSMutableDictionary alloc] init];
-            [resDictionary setObject:toBase64(data) forKey:@"data"];
-            [resDictionary setObject:dataSize forKey:@"size"];
-            if (data)  {
-                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary: resDictionary];
-            }
-        }
-            break;
-        default:
-            break;
     };
 
     if (saveToPhotoAlbum && image) {
-        ALAssetsLibrary* library = [ALAssetsLibrary new];
-        [library writeImageToSavedPhotosAlbum:image.CGImage orientation:(ALAssetOrientation)(image.imageOrientation) completionBlock:nil];
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
     }
 
     completion(result);
@@ -584,10 +577,8 @@ static NSString* toBase64(NSData* data) {
 
     dispatch_block_t invoke = ^ (void) {
         CDVPluginResult* result;
-        if (picker.sourceType == UIImagePickerControllerSourceTypeCamera && [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo] != ALAuthorizationStatusAuthorized) {
+        if (picker.sourceType == UIImagePickerControllerSourceTypeCamera && [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo] != AVAuthorizationStatusAuthorized) {
             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"has no access to camera"];
-        } else if (picker.sourceType != UIImagePickerControllerSourceTypeCamera && ! IsAtLeastiOSVersion(@"11.0") && [ALAssetsLibrary authorizationStatus] != ALAuthorizationStatusAuthorized) {
-            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"has no access to assets"];
         } else {
             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"No Image Selected"];
         }
@@ -702,7 +693,12 @@ static NSString* toBase64(NSData* data) {
     }
 
     switch (options.destinationType) {
-        case DestinationTypeFileUri:
+        case DestinationTypeDataUrl:
+        {
+            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:toBase64(self.data)];
+        }
+            break;
+        default: // DestinationTypeFileUri
         {
             NSError* err = nil;
             NSString* extension = self.pickerController.pictureOptions.encodingType == EncodingTypePNG ? @"png":@"jpg";
@@ -717,14 +713,6 @@ static NSString* toBase64(NSData* data) {
             }
         }
             break;
-        case DestinationTypeDataUrl:
-        {
-            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:toBase64(self.data)];
-        }
-            break;
-        case DestinationTypeNativeUri:
-        default:
-            break;
     };
 
     if (result) {
@@ -737,8 +725,7 @@ static NSString* toBase64(NSData* data) {
     self.metadata = nil;
 
     if (options.saveToPhotoAlbum) {
-        ALAssetsLibrary *library = [ALAssetsLibrary new];
-        [library writeImageDataToSavedPhotosAlbum:self.data metadata:self.metadata completionBlock:nil];
+        UIImageWriteToSavedPhotosAlbum([[UIImage alloc] initWithData:self.data], nil, nil, nil);
     }
 }
 
